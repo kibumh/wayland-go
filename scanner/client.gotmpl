@@ -1,0 +1,175 @@
+/*
+ * THIS CODE IS GENERATED. DO NOT EDIT BY HANDS.
+ */
+
+package protocol
+
+import (
+	"fmt"
+
+	"github.com/kibumh/wayland-go/wire"
+)
+
+{{$struct_name := .StructName -}}
+
+/*
+ * ENUMS
+ */
+
+{{range $enm := .Enums -}}
+{{$type_name := (print $struct_name .TypeName) -}}
+// {{$type_name}} is for {{.Desc.Summary}}.
+//
+{{.Desc.DescString -}}
+type {{$type_name}} int
+
+const (
+{{- range .Entries}}
+	{{$type_name}}{{.VarName}} {{$type_name}} = {{.Value}}  // {{.Summary}}
+{{- end}}
+)
+{{end}}
+/*
+ * EVENT HANDLER TYPES
+ */
+{{range .Events}}
+{{$type_name := (print $struct_name .FuncName) -}}
+// {{$type_name}} is a handler for {{.Desc.Summary}}.
+//
+{{.Desc.DescString -}}
+type {{$type_name}} func(
+{{- range $i, $a := .Args -}}
+	{{if $i}}, {{end -}}
+	{{$a.Parameter}}
+{{- end -}}
+) error
+{{end}}
+/*
+ * TYPE
+ */
+// {{$struct_name}} is {{.Desc.Summary}}.
+//
+{{.Desc.DescString -}}
+type {{$struct_name}} struct {
+	Base
+{{range .Events}}
+	{{.FieldName}} {{$struct_name}}{{.FuncName}}
+{{- end}}
+}
+
+// New{{$struct_name}} creates a {{$struct_name}} object.
+func New{{$struct_name}}(c *wire.Conn) *{{$struct_name}} {
+	return New{{$struct_name}}WithID(c, c.NewID())
+}
+
+// New{{$struct_name}}WithID creates a {{$struct_name}} object with a given id.
+func New{{$struct_name}}WithID(c *wire.Conn, id wire.ID) *{{$struct_name}} {
+	o := &{{$struct_name}}{Base: Base{c, id}}
+	c.RegisterObject(o)
+	return o
+}
+
+/*
+ * REQUESTS
+ */
+{{range $i, $r := .Reqs}}
+// {{.FuncName}} is for {{.Desc.Summary}}
+//
+{{.Desc.DescString -}}
+func (o *{{$struct_name}}) {{$r.FuncName}}(
+{{- range $i, $a := $r.Args -}}
+	{{- if $i}}, {{end -}}
+	{{.Parameter}}
+{{- end -}}
+) error {
+	msg, err := wire.NewMessage(o.ID(), {{$i}})
+	if err != nil {
+		return err
+	}
+{{range $r.Args}}
+	if err = msg.Write({{.ExprRequest}}); err != nil {
+		return err
+	}
+{{end}}
+	if err = o.Base.Conn.Write(msg); err != nil {
+		return err
+	}
+
+	return nil
+}
+{{end}}
+/*
+ * EVENTS
+ */
+{{range .Events}}
+// Serve{{.TypeName}} is for {{.Desc.Summary}}.
+//
+{{.Desc.DescString -}}
+func (o *{{$struct_name}}) Serve{{.TypeName}}(
+{{- range $i, $a := .Args -}}
+	{{- if $i}}, {{end -}}
+	{{- $a.Parameter -}}
+{{- end -}}
+) error {
+	if o.{{.FieldName}} == nil {
+		return nil
+	}
+	return o.{{.FieldName}}(
+{{- range $i, $a := .Args -}}
+		{{- if $i}}, {{end -}}
+		{{$a.ExprEvent}}
+{{- end -}}
+	)
+}
+
+// Handle{{.TypeName}} registers a handler for a {{.TypeName}} event.
+func (o *{{$struct_name}}) Handle{{.TypeName}}(h {{$struct_name}}{{.FuncName}}) {
+	o.{{.FieldName}} = h
+}
+{{end}}
+// ServeMessage is a multiplexer for a message.
+func (o *{{$struct_name}}) ServeMessage(msg *wire.Message) error {
+	switch msg.Opcode {
+{{- range $i, $e := .Events}}
+	case {{$i}}:
+		if o.{{$e.FieldName}} == nil {
+			return nil
+		}
+{{if $e.Args}}
+		r := wire.NewReader(msg.Payload)
+{{end -}}
+{{range $e.Args -}}
+{{$varName := .VarName -}}
+{{if or .IsRealNewID (eq .Type "object")}}{{$varName = (print .VarName "Id")}}{{end}}
+		{{$varName}}, err := r.Read{{.TypeNameOnly}}()
+		if err != nil {
+			return err
+		}
+{{if .IsRealNewID}}
+		{{.VarName}} := New{{.ItfTypeName}}WithID(o.Base.Conn, {{$varName}})
+{{else if eq .Type "object" -}}
+{{$objVar := .VarName -}}
+{{if .Interface}}{{$objVar = (print .VarName "Obj")}}{{end}}
+		{{$objVar}}, ok := o.Base.Conn.GetObject({{$varName}})
+		if !ok {
+			return fmt.Errorf("cannot find an object: id(%d)", {{$varName}})
+		}
+{{- if .Interface}}
+		{{.VarName}}, ok := {{$objVar}}.(*{{.ItfTypeName}})
+		if !ok {
+			return fmt.Errorf("failed to type assertion: id(%d), type({{.ItfTypeName}})", {{$varName}})
+		}
+{{end -}}
+{{end -}}
+{{end}}
+		return o.{{$e.FieldName}}(
+{{- range $i, $a := $e.Args -}}
+			{{if $i}}, {{end -}}
+			{{.ExprEvent -}}
+{{end -}}
+		)
+{{end}}
+	default:
+		return fmt.Errorf("{{$struct_name}}: unhandled message(%v)", msg)
+	}
+}
